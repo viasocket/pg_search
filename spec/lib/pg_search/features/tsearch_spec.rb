@@ -93,7 +93,7 @@ describe PgSearch::Features::TSearch do
           PgSearch::Configuration::Column.new(:name, nil, Model),
           PgSearch::Configuration::Column.new(:content, nil, Model),
         ]
-        options = { tsvector_column: "my_tsvector" }
+        options = {tsvector_column: "my_tsvector"}
         config = double(:config, :ignore => [])
         normalizer = PgSearch::Normalizer.new(config)
 
@@ -111,7 +111,7 @@ describe PgSearch::Features::TSearch do
           PgSearch::Configuration::Column.new(:name, nil, Model),
           PgSearch::Configuration::Column.new(:content, nil, Model),
         ]
-        options = { tsvector_column: ["tsvector1", "tsvector2"] }
+        options = {tsvector_column: ["tsvector1", "tsvector2"]}
         config = double(:config, :ignore => [])
         normalizer = PgSearch::Normalizer.new(config)
 
@@ -119,6 +119,64 @@ describe PgSearch::Features::TSearch do
         expect(feature.conditions.to_sql).to eq(
           %{((#{Model.quoted_table_name}.\"tsvector1\" || #{Model.quoted_table_name}.\"tsvector2\") @@ (to_tsquery('simple', ''' ' || 'query' || ' ''')))}
         )
+      end
+    end
+  end
+
+  describe "#highlight" do
+    with_model :Model do
+      table do |t|
+        t.string :name
+        t.text :content
+      end
+    end
+
+    it "generates SQL to call ts_headline" do
+      query = "query"
+      columns = [
+        PgSearch::Configuration::Column.new(:name, nil, Model)
+      ]
+      options = {}
+
+      config = double(:config, :ignore => [])
+      normalizer = PgSearch::Normalizer.new(config)
+
+      feature = described_class.new(query, options, columns, Model, normalizer)
+      expect(feature.highlight.to_sql).to eq(
+        "(ts_headline((coalesce(#{Model.quoted_table_name}.\"name\"::text, '')), (to_tsquery('simple', ''' ' || 'query' || ' ''')), ''))"
+      )
+    end
+
+    context "when options[:highlight] has options set" do
+      it "passes the options to ts_headline" do
+        query = "query"
+        columns = [
+          PgSearch::Configuration::Column.new(:name, nil, Model)
+        ]
+        options = {
+          highlight: {
+            StartSel: '<start class="search">',
+            StopSel: '<stop>',
+            MaxWords: 123,
+            MinWords: 456,
+            ShortWord: 4,
+            HighlightAll: true,
+            MaxFragments: 3,
+            FragmentDelimiter: '&hellip;'
+          }
+        }
+
+        config = double(:config, :ignore => [])
+        normalizer = PgSearch::Normalizer.new(config)
+
+        feature = described_class.new(query, options, columns, Model, normalizer)
+
+        expected_sql = %Q{(ts_headline((coalesce(#{Model.quoted_table_name}."name"::text, '')), (to_tsquery('simple', ''' ' || 'query' || ' ''')), 'StartSel = "<start class=\\"search\\">", StopSel = "<stop>", MaxFragments = 3, MaxWords = 123, MinWords = 456, ShortWord = 4, FragmentDelimiter = "&hellip;", HighlightAll = TRUE'))}
+
+        puts feature.highlight.to_sql
+        puts expected_sql
+
+        expect(feature.highlight.to_sql).to eq(expected_sql)
       end
     end
   end
